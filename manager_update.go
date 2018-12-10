@@ -171,7 +171,7 @@ func (m *MTProto) Updates_GetState() (*UpdateState, error) {
 	case TL_updates_state:
 		return NewUpdateState(x), nil
 	default:
-		log.Println(fmt.Sprintf("RPC: %#v", x))
+		// log.Println(fmt.Sprintf("RPC: %#v", x))
 		return nil, fmt.Errorf("RPC: %#v", x)
 	}
 }
@@ -257,7 +257,7 @@ func (m *MTProto) Updates_GetDifference(pts, qts, date int32) (*UpdateDifference
 		updateDifference.IntermediateState.Pts = u.Pts
 		return updateDifference, nil
 	default:
-		log.Println(fmt.Sprintf("RPC: %#v", x))
+		// log.Println(fmt.Sprintf("RPC: %#v", x))
 		return updateDifference, fmt.Errorf("RPC: %#v", x)
 	}
 }

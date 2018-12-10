@@ -1,33 +1,35 @@
 package mtproto
 
 import (
-	"log"
 	"reflect"
+	"fmt"
 )
 
-func (m *MTProto) Upload_GetFile(in TL, offset, limit int32) []byte {
+func (m *MTProto) Upload_GetFile(in TL, offset int32, limit int32) ([]byte, error) {
 	resp := make(chan TL, 1)
 	m.queueSend <- packetToSend{
 		TL_upload_getFile{
+			Location: in,
 			Offset:   offset,
 			Limit:    limit,
-			Location: in,
 		},
 		resp,
 	}
 	x := <-resp
 	switch f := x.(type) {
 	case TL_upload_file:
-		return f.Bytes
+		return f.Bytes, nil
 	case TL_upload_fileCdnRedirect:
 	case TL_rpc_error:
+		// log.Println(reflect.TypeOf(f).String(), f.error_code, f.error_message)
 		if f.error_code == 303 {
 			// Migrate Code
 		}
+		return nil, fmt.Errorf("TL_upload_getFile error [%d] %s", f.error_code, f.error_message)
 	default:
-		log.Println(reflect.TypeOf(f).String(), f)
+		return nil, fmt.Errorf("TL_upload_getFile unknown answer %s", reflect.TypeOf(f).String())
 	}
-	return []byte{}
+	return nil, fmt.Errorf("unknown error")
 }
 
 func (m *MTProto) Upload_GetCdnFile(fileToken []byte, offset, limit int32) []byte {

@@ -17,7 +17,7 @@ func (m *MTProto) sendPacket(msg TL, resp chan TL) error {
 		log.Println("MTProto::sendPacket::", reflect.TypeOf(msg).String())
 	}
 	if __debug & DEBUG_LEVEL_NETWORK_DETAILS != 0 {
-		fmt.Println(hex.Dump(msg.encode()))
+		fmt.Println(hex.Dump(obj)) // msg.encode()))
 	}
 	x := NewEncodeBuf(256)
 

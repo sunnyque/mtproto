@@ -3,14 +3,14 @@ package mtproto
 import (
 	"errors"
 	"fmt"
+	"log"
 	"math/rand"
 	"net"
 	"os"
 	"runtime"
+	"strings"
 	"sync"
 	"time"
-	"strings"
-	"log"
 )
 
 const (
@@ -25,8 +25,8 @@ var (
 )
 
 type MTProto struct {
-	appId			int64
-	appHash		string
+	appId     int64
+	appHash   string
 	addr      string
 	conn      *net.TCPConn
 	f         *os.File
@@ -50,6 +50,8 @@ type MTProto struct {
 	msgId        int64
 
 	dclist map[int32]string
+
+	stopped bool
 }
 
 type packetToSend struct {
@@ -89,6 +91,7 @@ func NewMTProto(appId int64, appHash, authkeyfile, dcAddress string, debug int32
 func (m *MTProto) Connect() error {
 	var err error
 	var tcpAddr *net.TCPAddr
+
 	// connect
 	if strings.Count(m.addr, ":") <= 1 {
 		tcpAddr, err = net.ResolveTCPAddr("tcp", m.addr)
@@ -133,6 +136,9 @@ func (m *MTProto) Connect() error {
 	m.msgsIdToAck = make(map[int64]packetToSend)
 	m.msgsIdToResp = make(map[int64]chan TL)
 	m.mutex = &sync.Mutex{}
+
+	m.stopped = false
+
 	go m.sendRoutine()
 	go m.readRoutine()
 
@@ -204,16 +210,20 @@ func (m *MTProto) Disconnect() error {
 	return nil
 }
 
-func (m *MTProto) GetDcAddress (dcID int32) string {
+func (m *MTProto) GetDcAddress(dcID int32) string {
 	return m.dclist[dcID]
 }
 
-func (m *MTProto) reconnect(newaddr string) error {
+func (m *MTProto) Reconnect(newaddr string) error {
 	var err error
 
-	// stop ping routine
-	m.stopPing <- struct{}{}
-	close(m.stopPing)
+	// NOTE: reconnect can be called from Ping as connection recovery after loss
+	// so keep ping going
+	if !m.stopped {
+		// stop ping routine
+		m.stopPing <- struct{}{}
+		close(m.stopPing)
+	}
 
 	// stop send routine
 	m.stopSend <- struct{}{}
@@ -237,7 +247,9 @@ func (m *MTProto) reconnect(newaddr string) error {
 
 	// renew connection
 	m.encrypted = false
-	m.addr = newaddr
+	if len(newaddr) > 0 {
+		m.addr = newaddr
+	}
 	err = m.Connect()
 	return err
 }
@@ -248,11 +260,24 @@ func (m *MTProto) pingRoutine() {
 		case <-m.stopPing:
 			m.allDone <- struct{}{}
 			return
+
 		case <-time.After(30 * time.Second):
-			//resp := make(chan TL, 1)
-			m.queueSend <- packetToSend{TL_ping{0xCADACADA}, nil}
-			//x := <-resp
-			//fmt.Println("PingReply::", reflect.TypeOf(x).String(), x)
+			if m.stopped {
+				fmt.Println("Trying to reconnect...")
+				if m.Reconnect("") != nil {
+					// failed to reconnect, try again
+					fmt.Println("ERROR: Failed to reconnect.")
+				} else {
+					// ok, exit this go routine
+					fmt.Println("Reconnected.")
+					return
+				}
+			} else {
+				//resp := make(chan TL, 1)
+				m.queueSend <- packetToSend{TL_ping{0xCADACADA}, nil}
+				//x := <-resp
+				//fmt.Println("PingReply::", reflect.TypeOf(x).String(), x)
+			}
 		}
 	}
 }
@@ -261,10 +286,14 @@ func (m *MTProto) sendRoutine() {
 	for x := range m.queueSend {
 		err := m.sendPacket(x.msg, x.resp)
 		if err != nil {
-			fmt.Println("SendRoutine:", err)
-			os.Exit(2)
+			fmt.Println("ERROR: SendRoutine:", err)
+			// mark for reconnect
+			m.stopped = true
+			m.allDone <- struct{}{}
+			return
 		}
 	}
+
 	m.allDone <- struct{}{}
 }
 
@@ -272,16 +301,20 @@ func (m *MTProto) readRoutine() {
 	for {
 		data, err := m.read(m.stopRead)
 		if err != nil {
-			fmt.Println("ReadRoutine:", err)
-			os.Exit(2)
+			fmt.Println("ERROR: ReadRoutine:", err)
+			// mark for reconnect
+			m.stopped = true
+			m.allDone <- struct{}{}
+			return
 		}
+
 		if data == nil {
 			m.allDone <- struct{}{}
 			return
 		}
+
 		m.process(m.msgId, m.seqNo, data)
 	}
-
 }
 
 func (m *MTProto) process(msgId int64, seqNo int32, data interface{}) interface{} {
@@ -329,7 +362,13 @@ func (m *MTProto) process(msgId int64, seqNo int32, data interface{}) interface{
 		m.mutex.Lock()
 		v, ok := m.msgsIdToResp[data.req_msg_id]
 		if ok {
-			v <- x.(TL)
+			select {
+			case v <- x.(TL):
+				// ok
+			default:
+				fmt.Println("WARN: send on closed channel")
+			}
+
 			close(v)
 			delete(m.msgsIdToResp, data.req_msg_id)
 		}
@@ -337,7 +376,6 @@ func (m *MTProto) process(msgId int64, seqNo int32, data interface{}) interface{
 		m.mutex.Unlock()
 	default:
 		return data
-
 	}
 
 	if (seqNo & 1) == 1 {

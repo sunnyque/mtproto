@@ -2,10 +2,9 @@ package mtproto
 
 import (
 	"fmt"
-	"log"
+
 	"github.com/pkg/errors"
 )
-
 
 func (m *MTProto) Auth_SendCode(phonenumber string) (string, error) {
 	var authSentCode TL_auth_sentCode
@@ -42,7 +41,8 @@ func (m *MTProto) Auth_SendCode(phonenumber string) (string, error) {
 			if !ok {
 				return "", fmt.Errorf("Wrong DC index: %d", newDc)
 			}
-			err := m.reconnect(newDcAddr)
+
+			err := m.Reconnect(newDcAddr)
 			fmt.Println("Reconnected")
 			if err != nil {
 				return "", err
@@ -108,7 +108,7 @@ func (m *MTProto) users_getFullUsers(id TL) (User, error) {
 	x := <-resp
 	user, ok := x.(TL_userFull)
 	if !ok {
-		log.Println(fmt.Sprintf("RPC: %#v", x))
+		// log.Println(fmt.Sprintf("RPC: %#v", x))
 		return User{}, fmt.Errorf("RPC: %#v", x)
 	}
 	newUser := NewUser(user.User)

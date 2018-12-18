@@ -2,12 +2,12 @@ package mtproto
 
 import (
 	"fmt"
-
 	"github.com/pkg/errors"
 )
 
 func (m *MTProto) Auth_SendCode(phonenumber string) (string, error) {
 	var authSentCode TL_auth_sentCode
+
 	flag := true
 	for flag {
 		resp := make(chan TL, 1)
@@ -18,16 +18,20 @@ func (m *MTProto) Auth_SendCode(phonenumber string) (string, error) {
 			Api_id:         int32(m.appId),
 			Api_hash:       m.appHash,
 		}, resp}
+
 		x := <-resp
+
 		switch x.(type) {
 		case TL_auth_sentCode:
 			authSentCode = x.(TL_auth_sentCode)
 			flag = false
+
 		case TL_rpc_error:
 			x := x.(TL_rpc_error)
 			if x.error_code != 303 {
 				return "", fmt.Errorf("RPC error: %v", x)
 			}
+
 			var newDc int32
 			n, _ := fmt.Sscanf(x.error_message, "PHONE_MIGRATE_%d", &newDc)
 			if n != 1 {
@@ -43,14 +47,14 @@ func (m *MTProto) Auth_SendCode(phonenumber string) (string, error) {
 			}
 
 			err := m.Reconnect(newDcAddr)
-			fmt.Println("Reconnected")
+			// fmt.Println("Reconnected")
 			if err != nil {
 				return "", err
 			}
+
 		default:
 			return "", fmt.Errorf("Got: %T", x)
 		}
-
 	}
 
 	if authSentCode.Flags&1 == 0 {
@@ -91,6 +95,55 @@ func (m *MTProto) Auth_CheckPhone(phonenumber string) bool {
 		}
 	}
 	return false
+}
+
+func (m* MTProto) Auth_Export(dcId int32) (int32, []byte, error) {
+	resp := make(chan TL, 1)
+
+	m.queueSend <- packetToSend{
+		TL_auth_exportAuthorization{
+			Dc_id: dcId,
+		},
+		resp,
+	}
+
+	x := <-resp
+
+	switch x.(type) {
+	case TL_rpc_error:
+		x := x.(TL_rpc_error)
+		return -1, nil, fmt.Errorf("Auth_Export: RPC error: %v", x)
+	case TL_auth_exportedAuthorization:
+		res := x.(TL_auth_exportedAuthorization)
+		return res.Id, res.Bytes, nil
+	default:
+		return -1, nil, fmt.Errorf("Auth_Export. Got: %T", x)
+	}
+}
+
+func (m* MTProto) Auth_Import(userId int32, bytes []byte) error {
+	resp := make(chan TL, 1)
+
+	m.queueSend <- packetToSend{
+		TL_auth_importAuthorization{
+			Id: userId,
+			Bytes: bytes,
+		},
+		resp,
+	}
+
+	x := <-resp
+
+	switch x.(type) {
+	case TL_rpc_error:
+		x := x.(TL_rpc_error)
+		return fmt.Errorf("Auth_Import: RPC error: %v", x)
+	case TL_auth_authorization:
+		// res := x.(TL_auth_authorization)
+		return nil
+	default:
+		return fmt.Errorf("Auth_Import. Got: %T", x)
+	}
 }
 
 func (m *MTProto) Users_GetFullSelf() (User, error) {

@@ -92,6 +92,8 @@ func (m *MTProto) Connect() error {
 	var err error
 	var tcpAddr *net.TCPAddr
 
+	// log.Println("DEBUG: MTProto.Connect. addr", m.addr)
+
 	// connect
 	if strings.Count(m.addr, ":") <= 1 {
 		tcpAddr, err = net.ResolveTCPAddr("tcp", m.addr)
@@ -101,8 +103,10 @@ func (m *MTProto) Connect() error {
 		}
 		m.conn, err = net.DialTCP("tcp", nil, tcpAddr)
 	} else {
-		idx := strings.LastIndex(m.addr, ":")
-		m.addr = fmt.Sprintf("%s:%s", m.addr[:idx], m.addr[idx+1:])
+		if !strings.HasPrefix(m.addr, "[") {
+			idx := strings.LastIndex(m.addr, ":")
+			m.addr = fmt.Sprintf("[%s]:%s", m.addr[:idx], m.addr[idx+1:])
+		}
 		tcpAddr, err = net.ResolveTCPAddr("tcp6", m.addr)
 		if err != nil {
 			log.Println("IPv6::", err.Error())
@@ -263,13 +267,13 @@ func (m *MTProto) pingRoutine() {
 
 		case <-time.After(30 * time.Second):
 			if m.stopped {
-				fmt.Println("Trying to reconnect...")
+				log.Println("Trying to reconnect...")
 				if m.Reconnect("") != nil {
 					// failed to reconnect, try again
-					fmt.Println("ERROR: Failed to reconnect.")
+					log.Println("ERROR: Failed to reconnect.")
 				} else {
 					// ok, exit this go routine
-					fmt.Println("Reconnected.")
+					log.Println("Reconnected.")
 					return
 				}
 			} else {
@@ -286,10 +290,11 @@ func (m *MTProto) sendRoutine() {
 	for x := range m.queueSend {
 		err := m.sendPacket(x.msg, x.resp)
 		if err != nil {
-			fmt.Println("ERROR: SendRoutine:", err)
+			log.Println("ERROR: SendRoutine:", err)
 			// mark for reconnect
 			m.stopped = true
 			m.allDone <- struct{}{}
+			_ = m.Disconnect()
 			return
 		}
 	}
@@ -301,10 +306,11 @@ func (m *MTProto) readRoutine() {
 	for {
 		data, err := m.read(m.stopRead)
 		if err != nil {
-			fmt.Println("ERROR: ReadRoutine:", err)
+			log.Println("ERROR: ReadRoutine:", err)
 			// mark for reconnect
 			m.stopped = true
 			m.allDone <- struct{}{}
+			_ = m.Disconnect()
 			return
 		}
 
@@ -366,7 +372,7 @@ func (m *MTProto) process(msgId int64, seqNo int32, data interface{}) interface{
 			case v <- x.(TL):
 				// ok
 			default:
-				fmt.Println("WARN: send on closed channel")
+				log.Println("WARN: send on closed channel")
 			}
 
 			close(v)
@@ -426,3 +432,4 @@ func (m *MTProto) readData() (err error) {
 
 	return nil
 }
+

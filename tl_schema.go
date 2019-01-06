@@ -27,6 +27,8 @@ const (
 	crc_inputPhotoEmpty                                  = 0x1cd7bf0d
 	crc_inputPhoto                                       = 0xfb95c6c4
 	crc_inputFileLocation                                = 0x14637196
+	crc_inputVideoFileLocation                           = 0x3d0364ec
+	crc_inputAudioFileLocation                           = 0x74dc404d
 	crc_inputAppEvent                                    = 0x770656a8
 	crc_peerUser                                         = 0x9db1bc6d
 	crc_peerChat                                         = 0xbad0e5bb
@@ -927,6 +929,16 @@ type TL_inputFileLocation struct {
 	Volume_id int64
 	Local_id  int32
 	Secret    int64
+}
+
+type TL_inputVideoFileLocation struct {
+	Id          int64
+	Access_hash int64
+}
+
+type TL_inputAudioFileLocation struct {
+	Id          int64
+	Access_hash int64
 }
 
 type TL_inputAppEvent struct {
@@ -5563,6 +5575,22 @@ func (e TL_inputFileLocation) encode() []byte {
 	x.Long(e.Volume_id)
 	x.Int(e.Local_id)
 	x.Long(e.Secret)
+	return x.buf
+}
+
+func (e TL_inputVideoFileLocation) encode() []byte {
+	x := NewEncodeBuf(512)
+	x.UInt(crc_inputVideoFileLocation)
+	x.Long(e.Id)
+	x.Long(e.Access_hash)
+	return x.buf
+}
+
+func (e TL_inputAudioFileLocation) encode() []byte {
+	x := NewEncodeBuf(512)
+	x.UInt(crc_inputAudioFileLocation)
+	x.Long(e.Id)
+	x.Long(e.Access_hash)
 	return x.buf
 }
 
@@ -12332,6 +12360,18 @@ func (m *DecodeBuf) ObjectGenerated(constructor uint32) (r TL) {
 		r = TL_inputFileLocation{
 			m.Long(),
 			m.Int(),
+			m.Long(),
+		}
+
+	case crc_inputVideoFileLocation:
+		r = TL_inputVideoFileLocation{
+			m.Long(),
+			m.Long(),
+		}
+
+	case crc_inputAudioFileLocation:
+		r = TL_inputAudioFileLocation{
+			m.Long(),
 			m.Long(),
 		}
 
